@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "CampusQuery"
+description = "A college FAQ intelligence system that combines natural-language questions with hybrid PostgreSQL keyword and pgvector semantic retrieval for students and administrators."
+version = "1.0.0"
+id = "artifacts/campus-query"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 24920
+
+[services.development]
+run = "pnpm --filter @workspace/campus-query run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/campus-query", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/campus-query/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24920"
+BASE_PATH = "/"

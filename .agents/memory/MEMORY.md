@@ -1,0 +1,1 @@
+- [Orval Zod compatibility](zod-codegen.md) — generated API validators require a Zod 4-compatible package.

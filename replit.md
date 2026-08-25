@@ -1,6 +1,6 @@
-# [Project name]
+# CampusQuery — College FAQ Intelligence System
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+CampusQuery answers natural-language university questions with grounded, ranked results from a PostgreSQL knowledge base.
 
 ## Run & Operate
 
@@ -22,15 +22,22 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/campus-query/src/App.tsx` — student and admin interface
+- `artifacts/api-server/src/routes/campusquery.ts` — search, FAQ, student, and admin API routes
+- `lib/api-spec/openapi.yaml` — API contract source of truth
+- `database/schema.sql` — PostgreSQL + pgvector DDL, constraints, indexes, triggers, views, and function
+- `database/seed.sql` — demo departments, users, FAQs, documents, history, feedback, and bookmarks
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Search uses a deterministic development embedding so the demo works without an external API key; the vector provider can be replaced behind the same stored `vector(8)` shape.
+- FAQ retrieval combines PostgreSQL GIN full-text ranking and pgvector cosine similarity, then applies structured department/category filters.
+- The demo session deliberately exposes Student/Admin role switching without storing local passwords; production auth should be connected to Clerk or Replit Auth.
+- Document bytes are represented by metadata and file references; persistent uploads should use App Storage rather than storing blobs in PostgreSQL.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Students can ask and browse grounded campus questions, inspect sources and related answers, save bookmarks, rate answers, and revisit search history. Admins can review analytics, publish FAQs, and explore the database concepts behind the system.
 
 ## User preferences
 
@@ -38,7 +45,8 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Run `pnpm install` after changing the API Zod package because generated integer validators use the Zod 4 API.
+- The app and API are separate managed services; restart both after route or frontend changes.
 
 ## Pointers
 

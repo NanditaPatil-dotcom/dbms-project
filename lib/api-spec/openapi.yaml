@@ -3,13 +3,18 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: CampusQuery college FAQ intelligence API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+  - name: search
+  - name: faqs
+  - name: student
+  - name: admin
 paths:
   /healthz:
     get:
@@ -24,6 +29,200 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /auth/session:
+    get:
+      operationId: getSession
+      tags: [auth]
+      summary: Get the current demo session
+      responses:
+        "200":
+          description: Current session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+  /search:
+    get:
+      operationId: searchFaqs
+      tags: [search]
+      summary: Hybrid keyword and semantic FAQ search
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema: { type: string, minLength: 2 }
+        - in: query
+          name: department
+          schema: { type: ["string", "null"] }
+        - in: query
+          name: category
+          schema: { type: ["string", "null"] }
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [relevance, viewed, updated]
+            default: relevance
+      responses:
+        "200":
+          description: Ranked FAQ matches
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResponse"
+        "400":
+          description: Invalid search query
+  /faqs:
+    get:
+      operationId: listFaqs
+      tags: [faqs]
+      summary: Browse published FAQs
+      parameters:
+        - in: query
+          name: category
+          schema: { type: ["string", "null"] }
+        - in: query
+          name: department
+          schema: { type: ["string", "null"] }
+      responses:
+        "200":
+          description: FAQ list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Faq" }
+  /faqs/{id}:
+    get:
+      operationId: getFaq
+      tags: [faqs]
+      summary: Get FAQ details and related questions
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: FAQ detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FaqDetail"
+        "404":
+          description: FAQ not found
+  /bookmarks:
+    get:
+      operationId: listBookmarks
+      tags: [student]
+      summary: List the current user's bookmarks
+      responses:
+        "200":
+          description: Bookmark list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Faq" }
+    post:
+      operationId: createBookmark
+      tags: [student]
+      summary: Bookmark an FAQ
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookmarkInput"
+      responses:
+        "201":
+          description: Bookmark created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ActionResult" }
+  /bookmarks/{faqId}:
+    delete:
+      operationId: deleteBookmark
+      tags: [student]
+      summary: Remove an FAQ bookmark
+      parameters:
+        - in: path
+          name: faqId
+          required: true
+          schema: { type: integer }
+      responses:
+        "200":
+          description: Bookmark removed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ActionResult" }
+  /feedback:
+    post:
+      operationId: submitFeedback
+      tags: [student]
+      summary: Rate an FAQ answer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FeedbackInput" }
+      responses:
+        "201":
+          description: Feedback submitted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ActionResult" }
+  /search/history:
+    get:
+      operationId: listSearchHistory
+      tags: [student]
+      summary: List recent searches
+      responses:
+        "200":
+          description: Search history
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/SearchHistoryItem" }
+  /admin/summary:
+    get:
+      operationId: getAdminSummary
+      tags: [admin]
+      summary: Dashboard KPIs and chart data
+      responses:
+        "200":
+          description: Admin dashboard summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminSummary" }
+  /admin/faqs:
+    post:
+      operationId: createAdminFaq
+      tags: [admin]
+      summary: Create a FAQ
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FaqInput" }
+      responses:
+        "201":
+          description: FAQ created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Faq" }
+  /admin/database-demo:
+    get:
+      operationId: getDatabaseDemo
+      tags: [admin]
+      summary: Explain implemented DBMS concepts
+      responses:
+        "200":
+          description: Database demonstration data
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DatabaseDemo" }
 components:
   schemas:
     HealthStatus:
@@ -33,4 +232,152 @@ components:
           type: string
       required:
         - status
+    Session:
+      type: object
+      required: [user]
+      properties:
+        user: { $ref: "#/components/schemas/User" }
+    User:
+      type: object
+      required: [id, name, email, role, initials]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        email: { type: string }
+        role: { type: string, enum: [Student, Admin] }
+        initials: { type: string }
+        department: { type: ["string", "null"] }
+    Faq:
+      type: object
+      required: [id, question, answer, category, department, updatedAt, relevance, views, status]
+      properties:
+        id: { type: integer }
+        question: { type: string }
+        answer: { type: string }
+        category: { type: string }
+        department: { type: string }
+        updatedAt: { type: string }
+        relevance: { type: number }
+        views: { type: integer }
+        status: { type: string, enum: [published, draft, archived] }
+        source: { type: ["string", "null"] }
+    FaqDetail:
+      allOf:
+        - $ref: "#/components/schemas/Faq"
+        - type: object
+          required: [related]
+          properties:
+            related:
+              type: array
+              items: { $ref: "#/components/schemas/Faq" }
+    SearchResponse:
+      type: object
+      required: [query, results, total, tookMs]
+      properties:
+        query: { type: string }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/Faq" }
+        total: { type: integer }
+        tookMs: { type: integer }
+    BookmarkInput:
+      type: object
+      required: [faqId]
+      properties:
+        faqId: { type: integer }
+    FeedbackInput:
+      type: object
+      required: [faqId, rating]
+      properties:
+        faqId: { type: integer }
+        rating: { type: integer, minimum: 1, maximum: 5 }
+        comment: { type: ["string", "null"] }
+    FaqInput:
+      type: object
+      required: [question, answer, category, department]
+      properties:
+        question: { type: string, minLength: 5 }
+        answer: { type: string, minLength: 10 }
+        category: { type: string }
+        department: { type: string }
+        priority: { type: integer, minimum: 1, maximum: 5, default: 3 }
+    ActionResult:
+      type: object
+      required: [success, message]
+      properties:
+        success: { type: boolean }
+        message: { type: string }
+    SearchHistoryItem:
+      type: object
+      required: [id, query, resultCount, createdAt]
+      properties:
+        id: { type: integer }
+        query: { type: string }
+        resultCount: { type: integer }
+        createdAt: { type: string }
+    AdminSummary:
+      type: object
+      required: [metrics, searchesOverTime, categoryCounts, departmentCounts, recentFaqs, lowRated]
+      properties:
+        metrics:
+          type: object
+          required: [totalFaqs, totalDocuments, totalStudents, searchesToday, mostViewed, averageRating]
+          properties:
+            totalFaqs: { type: integer }
+            totalDocuments: { type: integer }
+            totalStudents: { type: integer }
+            searchesToday: { type: integer }
+            mostViewed: { type: string }
+            averageRating: { type: number }
+        searchesOverTime:
+          type: array
+          items:
+            type: object
+            required: [day, searches]
+            properties:
+              day: { type: string }
+              searches: { type: integer }
+        categoryCounts:
+          type: array
+          items:
+            type: object
+            required: [label, value]
+            properties:
+              label: { type: string }
+              value: { type: integer }
+        departmentCounts:
+          type: array
+          items:
+            type: object
+            required: [label, value]
+            properties:
+              label: { type: string }
+              value: { type: integer }
+        recentFaqs:
+          type: array
+          items: { $ref: "#/components/schemas/Faq" }
+        lowRated:
+          type: array
+          items: { $ref: "#/components/schemas/Faq" }
+    DatabaseDemo:
+      type: object
+      required: [concepts, schemaStats]
+      properties:
+        concepts:
+          type: array
+          items:
+            type: object
+            required: [name, description, sql]
+            properties:
+              name: { type: string }
+              description: { type: string }
+              sql: { type: string }
+        schemaStats:
+          type: array
+          items:
+            type: object
+            required: [label, value]
+            properties:
+              label: { type: string }
+              value: { type: string }
 
