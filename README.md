@@ -1,131 +1,144 @@
-# CampusQuery — College FAQ Intelligence System
+# CampusQuery: College FAQ Intelligence System
 
-CampusQuery is a DBMS Level 3 experiential-learning project that turns a student's natural-language question into grounded university information. It is intentionally not a generic chatbot: every result comes from the stored FAQ/document knowledge base and shows its source, category, department, update date, and relevance.
+CampusQuery lets students ask university questions in natural language and get grounded answers from stored FAQs and documents. Every result shows its source, category, department and update date. An admin area manages FAQs and shows how the databases are used.
 
-## Problem and objectives
+The system is a **hybrid of MySQL and MongoDB**:
 
-University information is distributed across regulations, notices, department pages, and service handbooks. CampusQuery gives students one trustworthy discovery surface while giving administrators an auditable knowledge-management and analytics surface.
-
-The primary contribution is:
-
-**Natural-language question → PostgreSQL keyword search + pgvector semantic retrieval → structured filters → ranked, source-aware answer.**
-
-## Features
-
-- Student desk with natural-language question entry and suggested questions
-- Hybrid retrieval using PostgreSQL full-text search and pgvector cosine similarity
-- Category and department filtering, plus relevance/view/update sorting
-- FAQ detail with source metadata, related questions, bookmark, and feedback
-- Search history and saved answers
-- Admin dashboard with totals, category/department counts, recent and low-feedback FAQs
-- FAQ publishing form and a safe `/admin/database-demo` explanation surface
-- Database constraints, indexes, views, stored function, trigger, and seed dataset
-- Responsive interface with loading, empty, error, and confirmation states
-
-## Technology stack
-
-- React + Vite frontend in `artifacts/campus-query`
-- Express API service in `artifacts/api-server`
-- PostgreSQL with `pgvector`
-- Drizzle workspace database package and parameterized `pg` queries
-- OpenAPI-first contract with Orval-generated React Query hooks and Zod schemas
+| Store | Holds | Why |
+| --- | --- | --- |
+| **MySQL** | `DEPARTMENT`, `USER`, `CATEGORY`, `FAQ`, `DOCUMENT` (metadata), `FAQ_FEEDBACK`, `BOOKMARK`, `SEARCH_HISTORY` | Structured, relational data with keys, constraints, joins, aggregates, views, a trigger, a stored procedure and transactions |
+| **MongoDB** | `knowledge_documents`, `document_chunks`, `faq_enrichment` | Flexible, unstructured knowledge: document content, tags, rules and requirements whose shape varies per document, passage chunks, and per-FAQ keywords |
 
 ## Architecture
 
 ```text
-Student/Admin UI
-      |
-      v
-Express API (/api)
-      |
-      +--> PostgreSQL relational tables
-      |       + constraints, joins, aggregates, views, triggers
-      |
-      +--> faq_embeddings / document_chunks (pgvector)
-              + cosine similarity
-      |
-      v
-      Hybrid ranking + filters + source metadata
+Student / Admin UI (React + Vite)
+          |
+          v
+   Express API (/api)
+          |
+   +------+------------------------------+
+   |                                     |
+   v                                     v
+MySQL (source of truth)            MongoDB (knowledge)
+ FAQ, USER, CATEGORY, ...           knowledge_documents  (text index)
+ FULLTEXT(question, answer)         document_chunks      (text index)
+ views, trigger, procedure          faq_enrichment       (text index)
+   |                                     |
+   +------------- hybrid ranking --------+
+                       |
+                       v
+     ranked FAQs + matching knowledge documents
 ```
 
-PostgreSQL is required for users, roles, departments, categories, FAQ metadata, feedback, bookmarks, history, joins, aggregates, integrity constraints, views, triggers, and transactions. pgvector is required for meaning-based matching when the words in a student's question differ from the stored FAQ wording.
+### Hybrid retrieval
 
-## Relational model and ER diagram
+For a search such as `dorm visitors`:
+
+1. **MongoDB**: `faq_enrichment` (tags and keywords) is text-searched to produce a per-FAQ boost, and `knowledge_documents` and `document_chunks` are text-searched for matching documents and snippets.
+2. **MySQL**: `FAQ` is filtered by `status = 'PUBLISHED'`, department and category, and matched by an InnoDB `FULLTEXT` score, or by a FAQ id that MongoDB boosted.
+3. **Ranking**: `relevance = 0.7 * normalized_fulltext_score + 0.3 * mongo_tag_boost`, then sorted by relevance, views or recency.
+4. The response contains the ranked FAQs plus `knowledgeDocuments` (document title, source, tags and the best-matching snippet).
+
+If MongoDB is unreachable the API logs a warning and returns MySQL-only results.
+
+### How the two databases are linked
+
+- `DOCUMENT.file_reference` holds `knowledge_documents/<document_id>`, and each Mongo document stores `mysql_document_id`.
+- `faq_enrichment.faq_id` references `FAQ.faq_id`, and `related_document_ids` lists linked Mongo documents.
+- MySQL is the source of truth. There is no distributed transaction. When an admin publishes a FAQ, MySQL commits first (inside `sp_publish_faq`) and the Mongo enrichment is written afterwards. Enrichment can be rebuilt, so a Mongo failure never loses a FAQ.
+
+## Relational model (MySQL)
 
 ```mermaid
 erDiagram
-  DEPARTMENTS ||--o{ USERS : has
-  DEPARTMENTS ||--o{ FAQS : scopes
-  DEPARTMENTS ||--o{ DOCUMENTS : owns
-  CATEGORIES ||--o{ FAQS : classifies
-  USERS ||--o{ FAQS : creates
-  USERS ||--o{ SEARCH_HISTORY : records
-  USERS ||--o{ FAQ_FEEDBACK : submits
-  USERS ||--o{ BOOKMARKS : saves
-  FAQS ||--|| FAQ_EMBEDDINGS : represents
-  FAQS ||--o{ FAQ_FEEDBACK : receives
-  FAQS ||--o{ BOOKMARKS : saved_as
-  DOCUMENTS ||--o{ DOCUMENT_CHUNKS : splits
+  DEPARTMENT ||--o{ USER : has
+  DEPARTMENT ||--o{ FAQ : scopes
+  DEPARTMENT ||--o{ DOCUMENT : owns
+  CATEGORY ||--o{ FAQ : classifies
+  USER ||--o{ FAQ : creates
+  USER ||--o{ DOCUMENT : uploads
+  USER ||--o{ SEARCH_HISTORY : generates
+  USER ||--o{ FAQ_FEEDBACK : gives
+  USER ||--o{ BOOKMARK : saves
+  FAQ ||--o{ FAQ_FEEDBACK : receives
+  FAQ ||--o{ BOOKMARK : is_bookmarked
 ```
 
-The schema is normalized around independent users, departments, categories, FAQs, documents, interactions, and vector representations. Foreign keys define cardinality, unique constraints prevent duplicate identities/bookmarks, and CHECK constraints protect role/status/rating/priority domains.
+`DOCUMENT_CHUNK` is no longer a relational table. Passage text and its JSON metadata are stored in the MongoDB `document_chunks` collection (a natural fit for variable metadata such as section and page).
 
-## Advanced database concepts
+## Document model (MongoDB)
 
-1. **Transactions** — FAQ publishing and future document chunk/embedding writes are designed as atomic multi-row operations.
-2. **Views** — `popular_faqs_view`, `unanswered_or_low_feedback_faqs_view`, and `department_faq_statistics_view` drive admin insights.
-3. **Stored function** — `get_faq_statistics(department_id)` returns counts, average rating, and views.
-4. **Triggers** — `touch_updated_at()` updates FAQ/document timestamps on modification.
-5. **Indexing** — foreign-key/filter indexes, GIN full-text index, and HNSW vector index.
-6. **Full-text search** — generated `tsvector` column with English stemming and GIN indexing.
-7. **Vector search** — `faq_embeddings.embedding <=> query_vector` provides cosine-distance semantic ranking.
+| Collection | Shape | Indexes |
+| --- | --- | --- |
+| `knowledge_documents` | `document_id`, `mysql_document_id`, `title`, `department`, `document_type`, `content`, `tags[]`, `source`, plus optional `rules[]`, `requirements[]` or `steps[]` | unique `document_id`, unique `mysql_document_id`, `department`, `tags`, weighted text index on title, tags and content |
+| `document_chunks` | `document_id`, `chunk_index`, `chunk_text`, `metadata{}` | unique `(document_id, chunk_index)`, text index on `chunk_text` |
+| `faq_enrichment` | `faq_id`, `tags[]`, `keywords[]`, `related_document_ids[]` | unique `faq_id`, weighted text index on keywords and tags |
 
-## Embeddings and retrieval
+Collections have `$jsonSchema` validators for their core fields; everything else stays flexible.
 
-The schema stores a vector and its `embedding_model` for each FAQ. The development seed uses an explicit deterministic fallback embedding so the demonstration works without a provider credential. A production embedding adapter can replace this fallback and use a configurable model/API key from environment variables.
+## Database concepts demonstrated
 
-Search combines `ts_rank` from `search_vector` with `1 - cosine_distance` from pgvector. Results are then constrained by published status and optional department/category filters. This keeps semantic retrieval useful without sacrificing the structured database behavior required by the project.
+**MySQL**: primary and foreign keys with `ON DELETE` / `ON UPDATE` rules, `UNIQUE` and `CHECK` constraints, secondary indexes, an InnoDB `FULLTEXT` index, `ALTER TABLE`, three views (`popular_faqs_view`, `department_faq_statistics`, `low_feedback_faqs_view`), a stored function (`fn_faq_average_rating`), stored procedures (`sp_publish_faq` with a transaction and rollback handler, `sp_department_statistics`) and a trigger (`trg_bookmark_only_published`).
+
+**MongoDB**: document model, `$jsonSchema` validation, unique, multikey and compound indexes, weighted text indexes, `$text` search with `textScore` ranking, `$in` lookups and upserts.
+
+## Setup
+
+Requirements: Node.js 24, pnpm, MySQL 8+, MongoDB 6+.
+
+```bash
+# 1. MySQL: creates the CampusQuery database, tables, indexes, views, routines, trigger
+mysql -u root -p < database/mysql/schema.sql
+mysql -u root -p CampusQuery < database/mysql/seed.sql
+
+# 2. MongoDB: collections, validators, seed documents, indexes
+mongosh "mongodb://localhost:27017" database/mongodb/init.js
+
+# 3. Environment
+cp .env.example .env    # set MYSQL_URL, MONGODB_URI, MONGODB_DB
+
+# 4. Run
+pnpm install
+pnpm --filter @workspace/api-server run dev       # API
+pnpm --filter @workspace/campus-query run dev     # web (needs PORT and BASE_PATH)
+```
+
+Other scripts: `pnpm run typecheck`, `pnpm run build`, and `pnpm --filter @workspace/api-spec run codegen` (regenerates the API client and Zod schemas after editing `lib/api-spec/openapi.yaml`).
+
+### Useful queries to show in a demo
+
+```sql
+SELECT * FROM popular_faqs_view ORDER BY view_count DESC;
+CALL sp_department_statistics(NULL);
+SELECT faq_id, MATCH(question, answer) AGAINST ('attendance' IN NATURAL LANGUAGE MODE) AS score
+FROM FAQ HAVING score > 0 ORDER BY score DESC;
+```
+
+```js
+db.knowledge_documents.find({ tags: "hostel" })
+db.knowledge_documents.find({ $text: { $search: "attendance" } }, { title: 1, score: { $meta: "textScore" } }).sort({ score: { $meta: "textScore" } })
+db.faq_enrichment.find({ faq_id: 6 })
+```
 
 ## API
 
 | Method | Route | Purpose |
 | --- | --- | --- |
-| GET | `/api/auth/session` | Demo Student/Admin session |
-| GET | `/api/search` | Hybrid FAQ search |
-| GET | `/api/faqs`, `/api/faqs/:id` | Browse and inspect FAQs |
-| GET/POST | `/api/bookmarks` | List/create bookmarks |
-| DELETE | `/api/bookmarks/:faqId` | Remove bookmark |
-| POST | `/api/feedback` | Rate an answer |
+| GET | `/api/auth/session` | Demo Student/Admin session (`x-demo-role` header) |
+| GET | `/api/search` | Hybrid search: ranked FAQs plus `knowledgeDocuments` |
+| GET | `/api/faqs`, `/api/faqs/:id` | Browse FAQs; detail includes related FAQs and supporting documents |
+| GET/POST | `/api/bookmarks` | List / create bookmarks |
+| DELETE | `/api/bookmarks/:faqId` | Remove a bookmark |
+| POST | `/api/feedback` | Rate an answer (one rating per user per FAQ, updated on repeat) |
 | GET | `/api/search/history` | Recent searches |
 | GET | `/api/admin/summary` | Dashboard analytics |
-| POST | `/api/admin/faqs` | Publish a FAQ |
-| GET | `/api/admin/database-demo` | Safe DBMS concept examples |
+| POST | `/api/admin/faqs` | Publish a FAQ (`sp_publish_faq` + Mongo enrichment) |
+| GET | `/api/admin/database-demo` | Live MySQL and MongoDB concept demo |
 
-## Setup
+## Notes
 
-1. Provision PostgreSQL and copy `.env.example` to `.env`.
-2. Run the DDL in `database/schema.sql`.
-3. Run the demo data in `database/seed.sql`.
-4. Install packages with `pnpm install`.
-5. Start the managed API and web workflows.
-
-The workspace scripts also expose `pnpm run typecheck` and `pnpm run build`. Generated client/Zod files are regenerated with:
-
-```bash
-pnpm --filter @workspace/api-spec run codegen
-```
-
-## Demo data
-
-The seed includes 3 departments, 5 categories, 2 student users, 1 admin user, 8 FAQs, document records, embeddings, feedback, bookmarks, and search history. All content is explicitly demo/sample university policy and must not be presented as an actual institution's policy.
-
-## Security notes
-
-- Queries use parameterized PostgreSQL values.
-- Database credentials and provider keys belong in environment variables, never source control.
-- Passwords are not stored by this demo session; production authentication should use Clerk or Replit Auth with secure sessions and backend role checks.
-- The admin surface is a separate role-aware product path; production deployments must enforce the role in server middleware, not only in navigation.
-
-## Future enhancements
-
-Connect a managed auth provider, add App Storage-backed PDF ingestion, chunk and embed documents during a transaction, add provider-backed embeddings, and expand the automated route/constraint test suite.
+- All seed content is sample data and not any institution's real policy.
+- `password_hash` values in the seed are placeholders. The demo session does not use passwords; real deployments need proper authentication and server-side role checks.
+- All SQL uses parameterized values. Credentials belong in environment variables.
+- Statuses are stored upper-case in MySQL (`PUBLISHED`, `DRAFT`, `ARCHIVED`) and exposed lower-case by the API.

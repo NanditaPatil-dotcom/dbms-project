@@ -234,7 +234,7 @@ export const getSearchFaqsUrl = (params: SearchFaqsParams,) => {
 }
 
 /**
- * @summary Hybrid keyword and semantic FAQ search
+ * @summary Hybrid search across MySQL FAQs and MongoDB knowledge documents
  */
 export const searchFaqs = async (params: SearchFaqsParams, options?: Parameters<typeof customFetch>[1]): Promise<SearchResponse> => {
 
@@ -281,7 +281,7 @@ export type SearchFaqsQueryError = ErrorType<void>
 
 
 /**
- * @summary Hybrid keyword and semantic FAQ search
+ * @summary Hybrid search across MySQL FAQs and MongoDB knowledge documents
  */
 
 export function useSearchFaqs<TData = Awaited<ReturnType<typeof searchFaqs>>, TError = ErrorType<void>>(

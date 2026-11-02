@@ -1,53 +1,45 @@
-# CampusQuery — College FAQ Intelligence System
+# CampusQuery: College FAQ Intelligence System
 
-CampusQuery answers natural-language university questions with grounded, ranked results from a PostgreSQL knowledge base.
+CampusQuery answers natural-language university questions with grounded, ranked results from a hybrid MySQL + MongoDB knowledge base.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- `pnpm --filter @workspace/api-server run dev`: run the API server
+- `pnpm run typecheck`: full typecheck across all packages
+- `pnpm run build`: typecheck + build all packages
+- `pnpm --filter @workspace/api-spec run codegen`: regenerate API hooks and Zod schemas from the OpenAPI spec
+- Required env: `MYSQL_URL` (MySQL connection URL), `MONGODB_URI` (MongoDB connection string), optional `MONGODB_DB` (default `CampusQuery`)
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
 - API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
+- Databases: MySQL (`mysql2`) for structured data, MongoDB (`mongodb`) for flexible knowledge content
+- Validation: Zod (`zod/v4`)
 - API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- Build: esbuild (ESM bundle)
 
 ## Where things live
 
-- `artifacts/campus-query/src/App.tsx` — student and admin interface
-- `artifacts/api-server/src/routes/campusquery.ts` — search, FAQ, student, and admin API routes
-- `lib/api-spec/openapi.yaml` — API contract source of truth
-- `database/schema.sql` — PostgreSQL + pgvector DDL, constraints, indexes, triggers, views, and function
-- `database/seed.sql` — demo departments, users, FAQs, documents, history, feedback, and bookmarks
+- `artifacts/campus-query/src/App.tsx`: student and admin interface
+- `artifacts/api-server/src/routes/campusquery.ts`: search, FAQ, student, and admin API routes (MySQL queries)
+- `artifacts/api-server/src/lib/knowledge.ts`: MongoDB knowledge, enrichment and snippet helpers
+- `lib/db/src`: MySQL pool and lazy MongoDB client
+- `lib/api-spec/openapi.yaml`: API contract source of truth
+- `database/mysql/schema.sql`, `database/mysql/seed.sql`: MySQL DDL, views, procedure, function, trigger, and demo data
+- `database/mongodb/init.js`: MongoDB collections, validators, seed documents, and indexes (run with `mongosh`)
 
 ## Architecture decisions
 
-- Search uses a deterministic development embedding so the demo works without an external API key; the vector provider can be replaced behind the same stored `vector(8)` shape.
-- FAQ retrieval combines PostgreSQL GIN full-text ranking and pgvector cosine similarity, then applies structured department/category filters.
-- The demo session deliberately exposes Student/Admin role switching without storing local passwords; production auth should be connected to Clerk or Replit Auth.
-- Document bytes are represented by metadata and file references; persistent uploads should use App Storage rather than storing blobs in PostgreSQL.
-
-## Product
-
-Students can ask and browse grounded campus questions, inspect sources and related answers, save bookmarks, rate answers, and revisit search history. Admins can review analytics, publish FAQs, and explore the database concepts behind the system.
-
-## User preferences
-
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- MySQL is the source of truth for FAQs, users, feedback, bookmarks, history, and document metadata.
+- MongoDB holds document content, tags, chunks, and FAQ enrichment (keywords/tags); `DOCUMENT_CHUNK` lives in MongoDB.
+- Search blends InnoDB FULLTEXT score (70%) with MongoDB tag/keyword boost (30%) and returns matching knowledge documents alongside FAQs.
+- If MongoDB is down, the API logs a warning and serves MySQL-only results.
+- There is no cross-database transaction: MySQL commits first and Mongo enrichment is written afterwards (it is rebuildable).
+- The demo session exposes Student/Admin role switching without passwords; production auth should be added.
 
 ## Gotchas
 
 - Run `pnpm install` after changing the API Zod package because generated integer validators use the Zod 4 API.
+- MySQL table names are case-sensitive on Linux; the schema uses the upper-case names from the project report (`FAQ`, `USER`, ...).
 - The app and API are separate managed services; restart both after route or frontend changes.
-
-## Pointers
-
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details

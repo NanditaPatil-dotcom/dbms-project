@@ -22,6 +22,7 @@ export * from './faqInput';
 export * from './faqStatus';
 export * from './feedbackInput';
 export * from './healthStatus';
+export * from './knowledgeDocument';
 export * from './listFaqsParams';
 export * from './searchFaqsParams';
 export * from './searchFaqsSort';

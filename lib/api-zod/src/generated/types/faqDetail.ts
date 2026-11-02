@@ -6,7 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { Faq } from './faq';
+import type { KnowledgeDocument } from './knowledgeDocument';
 
 export type FaqDetail = Faq & {
   related: Faq[];
+  knowledgeDocuments?: KnowledgeDocument[];
 };

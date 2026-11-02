@@ -7,9 +7,15 @@ out-tsc
 *.tsbuildinfo
 .expo
 .expo-shared
+build
 
 # dependencies
 node_modules
+
+# env
+.env
+.env.local
+.env.*.local
 
 # IDEs and editors
 /.idea
@@ -34,6 +40,7 @@ node_modules
 /libpeerconnection.log
 npm-debug.log
 yarn-error.log
+pnpm-debug.log
 testem.log
 /typings
 
@@ -47,3 +54,26 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Next.js
+.next
+out
+
+# Prisma
+prisma/*.db
+prisma/*.db-journal
+
+# logs
+logs
+*.log
+
+# Vite
+.vite
+
+# Turbo
+.turbo
+
+# local dirs
+.agents
+.conversation
+.conversion

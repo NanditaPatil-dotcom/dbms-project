@@ -45,7 +45,7 @@ paths:
     get:
       operationId: searchFaqs
       tags: [search]
-      summary: Hybrid keyword and semantic FAQ search
+      summary: Hybrid search across MySQL FAQs and MongoDB knowledge documents
       parameters:
         - in: query
           name: q
@@ -270,6 +270,9 @@ components:
             related:
               type: array
               items: { $ref: "#/components/schemas/Faq" }
+            knowledgeDocuments:
+              type: array
+              items: { $ref: "#/components/schemas/KnowledgeDocument" }
     SearchResponse:
       type: object
       required: [query, results, total, tookMs]
@@ -280,6 +283,24 @@ components:
           items: { $ref: "#/components/schemas/Faq" }
         total: { type: integer }
         tookMs: { type: integer }
+        knowledgeDocuments:
+          type: array
+          items: { $ref: "#/components/schemas/KnowledgeDocument" }
+    KnowledgeDocument:
+      type: object
+      description: A knowledge document stored in MongoDB
+      required: [documentId, title, department, documentType, source, snippet, tags]
+      properties:
+        documentId: { type: string }
+        title: { type: string }
+        department: { type: string }
+        documentType: { type: string }
+        source: { type: string }
+        snippet: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        score: { type: number }
     BookmarkInput:
       type: object
       required: [faqId]

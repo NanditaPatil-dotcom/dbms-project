@@ -33,7 +33,7 @@ export const GetSessionResponse = zod.object({
 
 
 /**
- * @summary Hybrid keyword and semantic FAQ search
+ * @summary Hybrid search across MySQL FAQs and MongoDB knowledge documents
  */
 export const searchFaqsQueryQMin = 2;
 
@@ -61,7 +61,17 @@ export const SearchFaqsResponse = zod.object({
   "source": zod.string().nullish()
 })),
   "total": zod.int(),
-  "tookMs": zod.int()
+  "tookMs": zod.int(),
+  "knowledgeDocuments": zod.array(zod.object({
+  "documentId": zod.string(),
+  "title": zod.string(),
+  "department": zod.string(),
+  "documentType": zod.string(),
+  "source": zod.string(),
+  "snippet": zod.string(),
+  "tags": zod.array(zod.string()),
+  "score": zod.number().optional()
+}).describe('A knowledge document stored in MongoDB')).optional()
 })
 
 
@@ -118,7 +128,17 @@ export const GetFaqResponse = zod.object({
   "views": zod.int(),
   "status": zod.enum(['published', 'draft', 'archived']),
   "source": zod.string().nullish()
-}))
+})),
+  "knowledgeDocuments": zod.array(zod.object({
+  "documentId": zod.string(),
+  "title": zod.string(),
+  "department": zod.string(),
+  "documentType": zod.string(),
+  "source": zod.string(),
+  "snippet": zod.string(),
+  "tags": zod.array(zod.string()),
+  "score": zod.number().optional()
+}).describe('A knowledge document stored in MongoDB')).optional()
 }))
 
 

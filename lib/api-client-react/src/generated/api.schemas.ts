@@ -54,8 +54,23 @@ export interface Faq {
   source?: string | null;
 }
 
+/**
+ * A knowledge document stored in MongoDB
+ */
+export interface KnowledgeDocument {
+  documentId: string;
+  title: string;
+  department: string;
+  documentType: string;
+  source: string;
+  snippet: string;
+  tags: string[];
+  score?: number;
+}
+
 export type FaqDetail = Faq & {
   related: Faq[];
+  knowledgeDocuments?: KnowledgeDocument[];
 };
 
 export interface SearchResponse {
@@ -63,6 +78,7 @@ export interface SearchResponse {
   results: Faq[];
   total: number;
   tookMs: number;
+  knowledgeDocuments?: KnowledgeDocument[];
 }
 
 export interface BookmarkInput {
