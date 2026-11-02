@@ -77,3 +77,6 @@ logs
 .agents
 .conversation
 .conversion
+.local
+
+# Replit ignore
