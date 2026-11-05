@@ -10,7 +10,6 @@
   },
   "private": true,
   "dependencies": {
-    "@replit/connectors-sdk": "^0.4.1",
     "dotenv": "^18.0.9"
   },
   "devDependencies": {
