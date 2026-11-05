@@ -100,9 +100,11 @@ cp .env.example .env    # set MYSQL_URL, MONGODB_URI, MONGODB_DB
 
 # 4. Run
 pnpm install
-pnpm --filter @workspace/api-server run dev       # API
-pnpm --filter @workspace/campus-query run dev     # web (needs PORT and BASE_PATH)
+PORT=5000 pnpm --filter @workspace/api-server run dev
+PORT=5173 BASE_PATH=/ API_URL=http://localhost:5000 pnpm --filter @workspace/campus-query run dev
 ```
+
+The Vite dev server proxies `/api` requests to `API_URL` (defaults to `http://localhost:5000`). Keep the API server running while using the frontend; otherwise API requests will fail.
 
 Other scripts: `pnpm run typecheck`, `pnpm run build`, and `pnpm --filter @workspace/api-spec run codegen` (regenerates the API client and Zod schemas after editing `lib/api-spec/openapi.yaml`).
 
