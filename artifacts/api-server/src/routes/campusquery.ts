@@ -45,6 +45,50 @@ const faqSelect = `SELECT f.faq_id, f.question, f.answer, f.category_id, c.categ
 const sqlErrno = (error: unknown) => (error as { errno?: number } | null)?.errno;
 const ER_DUP_ENTRY = 1062;
 const ER_SIGNAL_EXCEPTION = 1644;
+const searchStopWords = new Set(["a", "an", "and", "are", "do", "for", "how", "i", "in", "is", "it", "of", "on", "the", "to", "what", "when", "where", "which"]);
+
+const searchWords = (value: string) =>
+  value.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().match(/[a-z0-9]+/g) ?? [];
+
+const editDistance = (left: string, right: string) => {
+  const distances = Array.from({ length: left.length + 1 }, () => Array<number>(right.length + 1).fill(0));
+  for (let i = 0; i <= left.length; i++) distances[i][0] = i;
+  for (let j = 0; j <= right.length; j++) distances[0][j] = j;
+  for (let i = 1; i <= left.length; i++) {
+    for (let j = 1; j <= right.length; j++) {
+      const substitution = distances[i - 1][j - 1] + (left[i - 1] === right[j - 1] ? 0 : 1);
+      distances[i][j] = Math.min(distances[i - 1][j] + 1, distances[i][j - 1] + 1, substitution);
+      if (i > 1 && j > 1 && left[i - 1] === right[j - 2] && left[i - 2] === right[j - 1]) {
+        distances[i][j] = Math.min(distances[i][j], distances[i - 2][j - 2] + 1);
+      }
+    }
+  }
+  return distances[left.length][right.length];
+};
+
+const fuzzyFaqScore = (query: string, content: string) => {
+  const terms = searchWords(query).filter((word) => word.length >= 3 && !searchStopWords.has(word));
+  const words = searchWords(content);
+  if (!terms.length || !words.length) return 0;
+
+  const scores = terms.map((term) => {
+    const maxDistance = term.length < 5 ? 0 : term.length < 10 ? 1 : 2;
+    let bestScore = 0;
+    for (const word of words) {
+      if (word.startsWith(term)) bestScore = Math.max(bestScore, 0.96);
+      const distance = editDistance(term, word);
+      if (distance <= maxDistance) bestScore = Math.max(bestScore, 1 - distance / Math.max(term.length, word.length));
+    }
+    return bestScore;
+  });
+
+  return scores.every((score) => score > 0) ? scores.reduce((sum, score) => sum + score, 0) / scores.length : 0;
+};
+
+const sortFaqs = (items: FaqRow[], sort: string) => items.sort((a, b) =>
+  sort === "viewed" ? Number(b.view_count) - Number(a.view_count)
+  : sort === "updated" ? new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+  : Number(b.relevance) - Number(a.relevance));
 
 const demoUser = (req: Request) => {
   const role = req.header("x-demo-role") === "Admin" ? "Admin" : "Student";
@@ -80,22 +124,35 @@ router.get("/search", async (req, res) => {
      JOIN DEPARTMENT d ON d.department_id = f.department_id
      WHERE f.status = 'PUBLISHED'
        AND (? IS NULL OR d.department_name = ?) AND (? IS NULL OR c.category_name = ?)
-       AND (MATCH(f.question, f.answer) AGAINST (? IN NATURAL LANGUAGE MODE) OR f.faq_id IN (?))`,
-    [q, department, department, category, category, q, boostedIds.length ? boostedIds : [0]],
+       AND (MATCH(f.question, f.answer) AGAINST (? IN NATURAL LANGUAGE MODE) OR f.faq_id IN (?)
+         OR LOWER(f.question) LIKE ? OR LOWER(f.answer) LIKE ?)`,
+    [q, department, department, category, category, q, boostedIds.length ? boostedIds : [0], `%${q.toLowerCase()}%`, `%${q.toLowerCase()}%`],
   );
 
-  const maxKeyword = Math.max(...rows.map((row) => Number(row.keyword_score ?? 0)), 0.0001);
-  const ranked = rows
-    .map((row) => {
+  let ranked: FaqRow[];
+  if (rows.length) {
+    const maxKeyword = Math.max(...rows.map((row) => Number(row.keyword_score ?? 0)), 0.0001);
+    ranked = rows.map((row) => {
       const keyword = Number(row.keyword_score ?? 0) / maxKeyword;
       const boost = boosts.get(row.faq_id) ?? 0;
-      return { ...row, relevance: Math.min(1, keyword * 0.7 + boost * 0.3) } as FaqRow;
-    })
-    .sort((a, b) =>
-      sort === "viewed" ? Number(b.view_count) - Number(a.view_count)
-      : sort === "updated" ? new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
-      : Number(b.relevance) - Number(a.relevance))
-    .slice(0, 20);
+      const relevance = Math.min(1, keyword * 0.7 + boost * 0.3);
+      return { ...row, relevance: relevance || 0.75 } as FaqRow;
+    });
+  } else {
+    // If full-text and substring matching find nothing, try a small typo-tolerant scan.
+    const [candidates] = await mysqlPool.query<FaqRow[]>(
+      `SELECT f.faq_id, f.question, f.answer, c.category_name, d.department_name, f.updated_at, f.view_count, f.status, 0 AS keyword_score
+       FROM FAQ f JOIN CATEGORY c ON c.category_id = f.category_id
+       JOIN DEPARTMENT d ON d.department_id = f.department_id
+       WHERE f.status = 'PUBLISHED' AND (? IS NULL OR d.department_name = ?) AND (? IS NULL OR c.category_name = ?)
+       ORDER BY f.view_count DESC LIMIT 500`,
+      [department, department, category, category],
+    );
+    ranked = candidates
+      .map((row) => ({ ...row, relevance: fuzzyFaqScore(q, `${row.question} ${row.answer}`) } as FaqRow))
+      .filter((row) => Number(row.relevance) > 0);
+  }
+  ranked = sortFaqs(ranked, sort).slice(0, 20);
 
   await mysqlPool.query("INSERT INTO SEARCH_HISTORY (user_id, query_text, result_count) VALUES (?, ?, ?)", [demoUser(req).id, q, ranked.length]);
   return res.json({ query: q, results: ranked.map(mapFaq), total: ranked.length, tookMs: Date.now() - startedAt, knowledgeDocuments });
@@ -203,7 +260,7 @@ router.get("/admin/database-demo", async (_req, res) => {
   res.json({
     schemaStats: [
       { label: "MySQL tables", value: String(tables[0].value) },
-      { label: "MongoDB collections", value: mongo ? "3 (knowledge_documents, document_chunks, faq_enrichment)" : "MongoDB unavailable" },
+      { label: "MongoDB collections", value: mongo ? "3" : "Unavailable" },
       { label: "Knowledge documents", value: mongo ? String(mongo.documents) : "n/a" },
     ],
     concepts: [
